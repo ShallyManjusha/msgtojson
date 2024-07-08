@@ -4,6 +4,8 @@ import csv
 import easyocr
 import re
 import json
+import requests
+
 
 def process_msg_file(msg_file, output_folder):
     # Get the filename without extension
@@ -19,6 +21,27 @@ def process_msg_file(msg_file, output_folder):
     
     # Return the path to the created folder
     return output_subfolder
+
+def rename_to_msg(file_path):
+    # Check if the file exists
+    if not os.path.isfile(file_path):
+        print(f"The file {file_path} does not exist.")
+        return None
+
+    # Get the file's directory and original name
+    dir_name, original_file_name = os.path.split(file_path)
+    # Create the new file name with .msg extension
+    new_file_name = os.path.splitext(original_file_name)[0] + '.msg'
+    # Full path for the new file name
+    new_file_path = os.path.join(dir_name, new_file_name)
+
+    # Rename the file
+    os.rename(file_path, new_file_path)
+    print(f"File has been renamed to: {new_file_path}")
+    folder_path = os.path.dirname(file_path)
+    print(folder_path)
+    return folder_path
+
 
 def extract_text_from_images(images_dir):
     # Initialize EasyOCR reader
@@ -98,8 +121,50 @@ def write_updated_message(file_path, updated_lines):
 
 
 def main():
-    input_folder = "sampledata"
-    output_msg_folder = "output_msg"
+    # Prompt user to enter the URL
+    wget_url = input("Enter the URL to download: ")
+
+    # Create the 'data' directory if it doesn't exist
+    os.makedirs('downloaded_data_from_box_folder', exist_ok=True)
+
+    # Change the current working directory to 'data'
+    os.chdir('downloaded_data_from_box_folder')
+
+    # Get the current working directory
+    CWD = os.getcwd()
+
+    try:
+        # Download the file from the URL
+        response = requests.get(wget_url)
+        response.raise_for_status()  # Check if the request was successful
+
+        # Extract the file name from the URL and append '.msg'
+        file_name = wget_url.split('/')[-1]
+        file_path = os.path.join(CWD, file_name)
+
+        # Write the downloaded content to a file
+        with open(file_path, 'wb') as file:
+            file.write(response.content)
+
+        print(f"File downloaded and saved as: {file_path}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while downloading the file: {e}")
+        return
+    except zipfile.BadZipFile as e:
+        print(f"An error occurred while unzipping the file: {e}")
+        return
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return
+    
+
+    input_folder = rename_to_msg(file_path)
+    if not input_folder:
+        print("Error in renaming the file. Exiting.")
+        return
+
+    output_msg_folder = "../output_msg"
     processed_files = []
 
     # Create the output_msg folder if it doesn't exist
@@ -111,39 +176,33 @@ def main():
     for folder_name in os.listdir(input_folder):
         folder_path = os.path.join(input_folder, folder_name)
         if os.path.isdir(folder_path):
-               # Find the subfolder within the folder
+            # Find the subfolder within the folder
             subfolder_path = None
             for subfolder_name in os.listdir(folder_path):
                 subfolder_full_path = os.path.join(folder_path, subfolder_name)
                 if os.path.isdir(subfolder_full_path):
                     subfolder_path = subfolder_full_path
                     break
-
             if subfolder_path:
                 message_path = os.path.join(subfolder_path, 'message.txt')
                 csv_path = os.path.join(subfolder_path, 'output.csv')
                 new_message_path = os.path.join(subfolder_path, f"{folder_name}.txt")
                 os.rename(message_path, new_message_path)
-                
                 message_lines = read_message_file(new_message_path)
                 image_data = read_csv_file(csv_path)
                 updated_lines = replace_text(message_lines, image_data)
                 message_file = os.path.join(subfolder_path, f"{folder_name}.txt")
                 write_updated_message(message_file, updated_lines)
-
-
                 # Generate JSON output
                 json_output = {
                     "document_name": folder_name,
                     "page_num": "NA",
                     "text": "".join(updated_lines)
                 }
-
                 # Store JSON file in output_msg folder
                 json_output_path = os.path.join(output_msg_folder, f"{folder_name}.json")
                 with open(json_output_path, 'w') as json_file:
                     json.dump(json_output, json_file, indent=4)
-
                 processed_files.append(json_output_path)
 
     print("JSON output generated for processed MSG files:")
@@ -152,7 +211,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
